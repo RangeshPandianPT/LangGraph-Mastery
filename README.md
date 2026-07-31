@@ -32,6 +32,14 @@ LangGraph solves this by modeling workflows as **Stateful Graphs**.
 ## Learning Path in this Directory
 1. **`01_basic_agent.py`**: Learn the absolute basics. Defining a state, nodes, and simple edges. No LLM required.
 2. **`02_conditional_routing.py`**: Learn how to use conditional edges to make decisions and route workflows dynamically.
+3. **`03_state_reducers.py`**: Understand how to use reducers (`operator.add`) to append data (like messages) to your state instead of overwriting it.
+4. **`04_llm_tool_agent.py`**: Build a real ReAct agent using an LLM, tools, and the prebuilt `ToolNode`.
+5. **`05_persistence.py`**: Add memory to your graphs using `MemorySaver` so your agents can remember past conversations.
+6. **`06_human_approval.py`**: Implement Human-in-the-Loop workflows by pausing graph execution with breakpoints.
+7. **`07_time_travel.py`**: Learn how to rewind state, inspect history, edit past states, and fork execution.
+8. **`08_multi_agent.py`**: Build a multi-agent system with a supervisor orchestrating a researcher and writer.
+9. **`09_streaming.py`**: Understand how to stream state updates and values in real-time as nodes execute.
+10. **`10_map_reduce.py`**: Use the `Send` API to dynamically fan-out parallel tasks (Map-Reduce pattern).
 
 ## Getting Started
 First, install the requirements:
@@ -43,4 +51,12 @@ Then run the scripts sequentially:
 ```bash
 python 01_basic_agent.py
 python 02_conditional_routing.py
+python 03_state_reducers.py
+python 04_llm_tool_agent.py
+python 05_persistence.py
+python 06_human_approval.py
+python 07_time_travel.py
+python 08_multi_agent.py
+python 09_streaming.py
+python 10_map_reduce.py
 ```
