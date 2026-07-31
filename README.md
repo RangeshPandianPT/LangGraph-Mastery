@@ -60,3 +60,11 @@ python 08_multi_agent.py
 python 09_streaming.py
 python 10_map_reduce.py
 ```
+
+## Capstone Project
+The `capstone/` directory contains a production-ready template that integrates **Multi-Agent Orchestration**, **Map-Reduce**, **Streaming**, and **Time Travel** (Persistent Memory).
+
+To run it:
+1. `pip install -r capstone/requirements.txt`
+2. `python capstone/backend.py`
+3. `streamlit run capstone/frontend.py` (in a separate terminal)
