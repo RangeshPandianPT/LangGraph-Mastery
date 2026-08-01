@@ -1,8 +1,11 @@
 langgraph
-langchain
+langchain-core
+langchain-google-genai
+langchain-community
+tavily-python
 fastapi
 uvicorn
-pydantic
 streamlit
-requests
 sseclient-py
+python-dotenv
+pydantic
