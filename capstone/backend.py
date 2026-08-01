@@ -3,28 +3,75 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from graph import graph
 import json
+from langchain_core.messages import HumanMessage
+import os
 
 app = FastAPI(title="LangGraph Capstone API")
 
 class InvokeRequest(BaseModel):
-    message: str
+    message: str = None
     thread_id: str = "1"
+
+def serialize_message(m):
+    if hasattr(m, "content"):
+        return f"{m.__class__.__name__}: {m.content}"
+    return str(m)
 
 @app.post("/invoke")
 def invoke_graph(req: InvokeRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
-    result = graph.invoke({"messages": [req.message]}, config)
-    return {"draft": result.get("draft"), "messages": result.get("messages")}
+    
+    # Check if the graph is currently paused
+    state = graph.get_state(config)
+    if state.next:
+        result = graph.invoke(None, config) # Resume
+    else:
+        result = graph.invoke({"messages": [HumanMessage(content=req.message)]}, config)
+        
+    return {
+        "draft": result.get("draft"), 
+        "messages": [serialize_message(m) for m in result.get("messages", [])]
+    }
 
 @app.post("/stream")
 def stream_graph(req: InvokeRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
     
     def generate():
-        for update in graph.stream({"messages": [req.message]}, config=config, stream_mode="updates"):
-            yield f"data: {json.dumps(update)}\n\n"
-    
+        state = graph.get_state(config)
+        inputs = None if state.next else {"messages": [HumanMessage(content=req.message)]}
+        
+        for update in graph.stream(inputs, config=config, stream_mode="updates"):
+            serializable_update = {}
+            for node, state_data in update.items():
+                node_data = {}
+                for k, v in state_data.items():
+                    if k == "messages":
+                        node_data[k] = [serialize_message(m) for m in v]
+                    else:
+                        node_data[k] = v
+                serializable_update[node] = node_data
+                
+            yield f"data: {json.dumps(serializable_update)}\n\n"
+            
+        final_state = graph.get_state(config)
+        if final_state.next:
+            yield f"data: {json.dumps({'status': 'PAUSED', 'next': list(final_state.next)})}\n\n"
+            
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+@app.get("/state/{thread_id}")
+def get_current_state(thread_id: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    state = graph.get_state(config)
+    return {
+        "next": list(state.next),
+        "values": {
+            "research_topics": state.values.get("research_topics", []),
+            "summaries": state.values.get("summaries", []),
+            "draft": state.values.get("draft")
+        }
+    }
 
 @app.get("/history/{thread_id}")
 def get_history(thread_id: str):
@@ -34,11 +81,12 @@ def get_history(thread_id: str):
     for h in history:
         serialized.append({
             "checkpoint_id": h.config["configurable"]["checkpoint_id"],
-            "messages": h.values.get("messages", []),
+            "messages": [serialize_message(m) for m in h.values.get("messages", [])],
             "draft": h.values.get("draft")
         })
     return {"history": serialized}
 
 if __name__ == "__main__":
     import uvicorn
+    os.makedirs("data", exist_ok=True)
     uvicorn.run(app, host="0.0.0.0", port=8000)
