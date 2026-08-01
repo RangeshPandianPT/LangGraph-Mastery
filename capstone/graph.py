@@ -1,14 +1,24 @@
 import operator
 import sqlite3
+import os
 from typing import TypedDict, Annotated, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.constants import Send
 from langgraph.checkpoint.sqlite import SqliteSaver
-import time
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import AnyMessage, AIMessage, HumanMessage
+from langchain_community.tools.tavily_search import TavilySearchResults
+from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Initialize Gemini LLM
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
 
 # --- State Definitions ---
 class OverallState(TypedDict):
-    messages: Annotated[List[str], operator.add]
+    messages: Annotated[List[AnyMessage], operator.add]
     research_topics: List[str]
     summaries: Annotated[List[str], operator.add]
     draft: str
@@ -17,10 +27,13 @@ class OverallState(TypedDict):
 class SummarizeState(TypedDict):
     topic: str
 
+# Structured output for topic generation
+class Topics(BaseModel):
+    topics: List[str] = Field(description="List of specific internet search queries (max 3)")
+
 # --- Nodes ---
 def supervisor(state: OverallState):
     print("Supervisor checking state...")
-    messages = state.get("messages", [])
     if state.get("draft"):
         return {"next_agent": "FINISH"}
     if not state.get("research_topics"):
@@ -29,28 +42,52 @@ def supervisor(state: OverallState):
 
 def researcher(state: OverallState):
     print("Researcher is working...")
-    last_message = state["messages"][-1] if state.get("messages") else "AI"
-    # Extract fake topics based on the prompt
-    topics = [f"Topic 1 for {last_message}", f"Topic 2 for {last_message}"]
-    return {"research_topics": topics, "messages": ["Researcher: Found topics to investigate."]}
+    messages = state.get("messages", [])
+    user_request = messages[0].content if messages and hasattr(messages[0], 'content') else str(messages)
+    
+    prompt = f"Based on the user request, generate up to 3 specific internet search queries to gather comprehensive information.\nRequest: {user_request}"
+    
+    structured_llm = llm.with_structured_output(Topics)
+    result = structured_llm.invoke(prompt)
+    
+    return {
+        "research_topics": result.topics, 
+        "messages": [AIMessage(content=f"Researcher identified topics: {', '.join(result.topics)}")]
+    }
 
 def research_worker(state: SummarizeState):
-    # This node simulates a Map-Reduce parallel task
-    time.sleep(1) # Simulate API call/Streaming
+    print(f"Research Worker investigating: {state['topic']}")
     topic = state["topic"]
-    return {"summaries": [f"Deep dive into {topic}"]}
+    
+    # Use Tavily Search
+    search = TavilySearchResults(max_results=2)
+    try:
+        docs = search.invoke(topic)
+        docs_text = "\n".join([f"- {d['content']}" for d in docs])
+    except Exception as e:
+        docs_text = f"Failed to search: {e}"
+        
+    summary_prompt = f"Summarize the following search results for the topic '{topic}':\n{docs_text}"
+    res = llm.invoke(summary_prompt)
+    
+    return {"summaries": [f"**{topic}**: {res.content}"]}
 
 def map_research(state: OverallState):
-    # Conditional edge to fan out
     topics = state.get("research_topics", [])
     return [Send("research_worker", {"topic": t}) for t in topics]
 
 def writer(state: OverallState):
     print("Writer is drafting...")
-    time.sleep(1)
     summaries = state.get("summaries", [])
-    draft = f"Here is the final report based on: {', '.join(summaries)}"
-    return {"draft": draft, "messages": ["Writer: Draft completed!"]}
+    summaries_text = "\n\n".join(summaries)
+    
+    messages = state.get("messages", [])
+    user_request = messages[0].content if messages and hasattr(messages[0], 'content') else str(messages)
+    
+    prompt = f"Write a comprehensive, well-structured report based on these research summaries:\n{summaries_text}\n\nOriginal User request: {user_request}"
+    res = llm.invoke(prompt)
+    
+    return {"draft": res.content, "messages": [AIMessage(content="Writer: Draft completed!")]}
 
 # --- Routing ---
 def supervisor_router(state: OverallState):
@@ -68,7 +105,6 @@ def build_graph():
     builder.add_node("research_worker", research_worker)
     builder.add_node("writer", writer)
     
-    # Workflow
     builder.add_edge(START, "supervisor")
     
     builder.add_conditional_edges(
@@ -86,10 +122,12 @@ def build_graph():
     # Writer goes to supervisor
     builder.add_edge("writer", "supervisor")
     
-    # Add Persistence (SQLite) for Memory and Time Travel
-    conn = sqlite3.connect("memory.sqlite", check_same_thread=False)
+    # Persistence
+    os.makedirs("data", exist_ok=True)
+    conn = sqlite3.connect("data/memory.sqlite", check_same_thread=False)
     memory = SqliteSaver(conn)
     
-    return builder.compile(checkpointer=memory)
+    # Human in the loop! Interrupt before writer drafts the report.
+    return builder.compile(checkpointer=memory, interrupt_before=["writer"])
 
 graph = build_graph()
