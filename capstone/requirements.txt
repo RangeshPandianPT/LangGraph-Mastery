@@ -1,6 +1,6 @@
 langgraph
 langchain-core
-langchain-google-genai
+langchain-ollama
 langchain-community
 tavily-python
 fastapi
@@ -9,3 +9,4 @@ streamlit
 sseclient-py
 python-dotenv
 pydantic
+beautifulsoup4
