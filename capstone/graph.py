@@ -5,7 +5,8 @@ from typing import TypedDict, Annotated, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.constants import Send
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
+from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import AnyMessage, AIMessage, HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
 from pydantic import BaseModel, Field
@@ -13,8 +14,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize Gemini LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
+# Initialize Ollama LLM
+llm = ChatOllama(model="llama3.2:3b", temperature=0.2)
 
 # --- State Definitions ---
 class OverallState(TypedDict):
@@ -75,13 +76,27 @@ def research_worker(state: SummarizeState):
     
     # Use Tavily Search
     search = TavilySearchResults(max_results=2)
+    docs_text = ""
     try:
         docs = search.invoke(topic)
-        docs_text = "\n".join([f"- {d['content']}" for d in docs])
+        for d in docs:
+            docs_text += f"- Title/Snippet: {d.get('content', '')}\n"
+            url = d.get("url")
+            if url:
+                try:
+                    print(f"Scraping: {url}")
+                    loader = WebBaseLoader(url)
+                    web_docs = loader.load()
+                    if web_docs:
+                        # Extract first 1000 characters from the scraped page
+                        page_content = web_docs[0].page_content.replace('\n', ' ').strip()
+                        docs_text += f"  Scraped Content: {page_content[:1000]}...\n"
+                except Exception as scrape_err:
+                    print(f"Failed to scrape {url}: {scrape_err}")
     except Exception as e:
         docs_text = f"Failed to search: {e}"
         
-    summary_prompt = f"Summarize the following search results for the topic '{topic}':\n{docs_text}"
+    summary_prompt = f"Summarize the following search results and scraped content for the topic '{topic}':\n{docs_text}"
     res = llm.invoke(summary_prompt)
     
     return {"summaries": [f"**{topic}**: {res.content}"]}
