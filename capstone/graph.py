@@ -9,13 +9,16 @@ from langchain_ollama import ChatOllama
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.messages import AnyMessage, AIMessage, HumanMessage
 from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_community.tools import WikipediaQueryRun
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Initialize Ollama LLM
-llm = ChatOllama(model="llama3.2:3b", temperature=0.2)
+ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+llm = ChatOllama(model="llama3.2:3b", temperature=0.2, base_url=ollama_base_url)
 
 # --- State Definitions ---
 class OverallState(TypedDict):
@@ -74,11 +77,13 @@ def research_worker(state: SummarizeState):
     print(f"Research Worker investigating: {state['topic']}")
     topic = state["topic"]
     
-    # Use Tavily Search
-    search = TavilySearchResults(max_results=2)
+    # Use Tavily Search and Wikipedia
+    tavily_search = TavilySearchResults(max_results=2)
+    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    
     docs_text = ""
     try:
-        docs = search.invoke(topic)
+        docs = tavily_search.invoke(topic)
         for d in docs:
             docs_text += f"- Title/Snippet: {d.get('content', '')}\n"
             url = d.get("url")
@@ -94,7 +99,13 @@ def research_worker(state: SummarizeState):
                 except Exception as scrape_err:
                     print(f"Failed to scrape {url}: {scrape_err}")
     except Exception as e:
-        docs_text = f"Failed to search: {e}"
+        docs_text += f"Failed to search web: {e}\n"
+        
+    try:
+        wiki_docs = wikipedia.invoke(topic)
+        docs_text += f"\n- Wikipedia Summary:\n{wiki_docs}\n"
+    except Exception as e:
+        docs_text += f"Failed to search Wikipedia: {e}\n"
         
     summary_prompt = f"Summarize the following search results and scraped content for the topic '{topic}':\n{docs_text}"
     res = llm.invoke(summary_prompt)
