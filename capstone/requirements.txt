@@ -10,3 +10,4 @@ sseclient-py
 python-dotenv
 pydantic
 beautifulsoup4
+wikipedia
