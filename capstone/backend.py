@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from graph import graph
 import json
@@ -11,6 +11,7 @@ app = FastAPI(title="LangGraph Capstone API")
 class InvokeRequest(BaseModel):
     message: str = None
     thread_id: str = "1"
+    checkpoint_id: str = None
 
 def serialize_message(m):
     if hasattr(m, "content"):
@@ -20,6 +21,8 @@ def serialize_message(m):
 @app.post("/invoke")
 def invoke_graph(req: InvokeRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
+    if req.checkpoint_id:
+        config["configurable"]["checkpoint_id"] = req.checkpoint_id
     
     # Check if the graph is currently paused
     state = graph.get_state(config)
@@ -36,6 +39,8 @@ def invoke_graph(req: InvokeRequest):
 @app.post("/stream")
 def stream_graph(req: InvokeRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
+    if req.checkpoint_id:
+        config["configurable"]["checkpoint_id"] = req.checkpoint_id
     
     def generate():
         state = graph.get_state(config)
@@ -85,6 +90,13 @@ def get_history(thread_id: str):
             "draft": h.values.get("draft")
         })
     return {"history": serialized}
+
+@app.get("/graph_mermaid", response_class=PlainTextResponse)
+def get_graph_mermaid():
+    try:
+        return graph.get_graph().draw_mermaid()
+    except Exception as e:
+        return f"Error generating graph: {e}"
 
 if __name__ == "__main__":
     import uvicorn
