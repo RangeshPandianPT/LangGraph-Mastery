@@ -16,31 +16,60 @@ if "thread_id" not in st.session_state:
 
 with st.sidebar:
     st.header("Settings & Tools")
-    new_thread_id = st.text_input("Thread ID", value=st.session_state.thread_id)
-    if new_thread_id != st.session_state.thread_id:
-        st.session_state.thread_id = new_thread_id
-        st.session_state.chat_history = []
-        st.rerun()
     
-    st.divider()
+    tab1, tab2 = st.tabs(["Controls", "Architecture"])
     
-    if st.button("🔄 Check Graph State"):
-        res = requests.get(f"{BACKEND_URL}/state/{st.session_state.thread_id}")
-        if res.status_code == 200:
-            st.json(res.json())
-    
-    if st.button("📜 Load Past History"):
-        res = requests.get(f"{BACKEND_URL}/history/{st.session_state.thread_id}")
-        if res.status_code == 200:
-            history = res.json()["history"]
-            for h in history:
-                with st.expander(f"Checkpoint: {h['checkpoint_id'][:8]}"):
-                    for m in h["messages"]:
-                        st.write(m)
-                    if h.get("draft"):
-                        st.success(h["draft"][:100] + "...")
+    with tab1:
+        new_thread_id = st.text_input("Thread ID", value=st.session_state.thread_id)
+        if new_thread_id != st.session_state.thread_id:
+            st.session_state.thread_id = new_thread_id
+            st.session_state.chat_history = []
+            st.rerun()
+        
+        st.divider()
+        
+        if st.button("🔄 Check Graph State"):
+            res = requests.get(f"{BACKEND_URL}/state/{st.session_state.thread_id}")
+            if res.status_code == 200:
+                st.json(res.json())
+        
+        if st.button("📜 Load Past History"):
+            res = requests.get(f"{BACKEND_URL}/history/{st.session_state.thread_id}")
+            if res.status_code == 200:
+                history = res.json()["history"]
+                for h in history:
+                    with st.expander(f"Checkpoint: {h['checkpoint_id'][:8]}"):
+                        for m in h["messages"]:
+                            st.write(m)
+                        if h.get("draft"):
+                            st.success(h["draft"][:100] + "...")
+                        if st.button(f"Fork & Resume from here", key=f"fork_{h['checkpoint_id']}"):
+                            st.session_state.checkpoint_id = h['checkpoint_id']
+                            st.session_state.chat_history.append({"role": "assistant", "content": f"🔄 **Time Travel**: Resuming from checkpoint {h['checkpoint_id'][:8]}..."})
+                            st.rerun()
+            else:
+                st.error("Failed to load history")
+                
+        # If there's a draft in the current state, show download button
+        state_res = requests.get(f"{BACKEND_URL}/state/{st.session_state.thread_id}")
+        if state_res.status_code == 200:
+            current_state = state_res.json()
+            if current_state["values"].get("draft"):
+                st.divider()
+                st.download_button(
+                    label="⬇️ Download Final Report (Markdown)",
+                    data=current_state["values"]["draft"],
+                    file_name="research_report.md",
+                    mime="text/markdown"
+                )
+                
+    with tab2:
+        st.subheader("Graph Visualization")
+        mermaid_res = requests.get(f"{BACKEND_URL}/graph_mermaid")
+        if mermaid_res.status_code == 200:
+            st.markdown(f"```mermaid\n{mermaid_res.text}\n```")
         else:
-            st.error("Failed to load history")
+            st.error("Could not load graph visualization.")
 
 # Render chat history
 for msg in st.session_state.chat_history:
@@ -60,7 +89,12 @@ if state_res.status_code == 200:
             
             if st.button("✅ Approve & Draft Report"):
                 try:
-                    req = requests.post(f"{BACKEND_URL}/stream", json={"message": "", "thread_id": st.session_state.thread_id}, stream=True)
+                    payload = {"message": "", "thread_id": st.session_state.thread_id}
+                    if hasattr(st.session_state, "checkpoint_id") and st.session_state.checkpoint_id:
+                        payload["checkpoint_id"] = st.session_state.checkpoint_id
+                        st.session_state.checkpoint_id = None # Clear after use
+                        
+                    req = requests.post(f"{BACKEND_URL}/stream", json=payload, stream=True)
                     client = sseclient.SSEClient(req)
                     
                     accumulated_text = ""
@@ -103,7 +137,12 @@ if prompt := st.chat_input("What should the agents research?"):
         placeholder = st.empty()
         
         try:
-            req = requests.post(f"{BACKEND_URL}/stream", json={"message": prompt, "thread_id": st.session_state.thread_id}, stream=True)
+            payload = {"message": prompt, "thread_id": st.session_state.thread_id}
+            if hasattr(st.session_state, "checkpoint_id") and st.session_state.checkpoint_id:
+                payload["checkpoint_id"] = st.session_state.checkpoint_id
+                st.session_state.checkpoint_id = None # Clear after use
+                
+            req = requests.post(f"{BACKEND_URL}/stream", json=payload, stream=True)
             client = sseclient.SSEClient(req)
             
             accumulated_text = ""
