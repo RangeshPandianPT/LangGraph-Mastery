@@ -26,6 +26,7 @@ class OverallState(TypedDict):
     research_topics: List[str]
     summaries: Annotated[List[str], operator.add]
     draft: str
+    fact_check_result: str
     evaluation: str
     revision_count: int
     next_agent: str
@@ -41,12 +42,18 @@ class Evaluation(BaseModel):
     is_acceptable: bool = Field(description="Whether the draft fully answers the user's request")
     feedback: str = Field(description="Feedback on what is missing or needs improvement")
 
+class FactCheck(BaseModel):
+    is_accurate: bool = Field(description="Whether the draft accurately reflects the research summaries without hallucinating")
+    feedback: str = Field(description="Feedback on what facts are inaccurate or missing")
+
 # --- Nodes ---
 def supervisor(state: OverallState):
     print("Supervisor checking state...")
     if state.get("evaluation") == "ACCEPT":
         return {"next_agent": "FINISH"}
-    if state.get("draft") and state.get("evaluation") != "REJECT":
+    if state.get("draft") and state.get("fact_check_result") != "ACCEPT" and not (state.get("fact_check_result") and state.get("fact_check_result") != "ACCEPT"):
+        return {"next_agent": "fact_checker"}
+    if state.get("draft") and state.get("fact_check_result") == "ACCEPT" and state.get("evaluation") != "REJECT":
         return {"next_agent": "evaluator"}
     if not state.get("research_topics"):
         return {"next_agent": "researcher"}
@@ -124,15 +131,33 @@ def writer(state: OverallState):
     messages = state.get("messages", [])
     user_request = messages[0].content if messages and hasattr(messages[0], 'content') else str(messages)
     feedback = state.get("evaluation", "")
+    fact_feedback = state.get("fact_check_result", "")
     
     prompt = f"Write a comprehensive, well-structured report based on these research summaries:\n{summaries_text}\n\nOriginal User request: {user_request}"
     if feedback and feedback != "ACCEPT":
         prompt += f"\n\nImprove your previous draft based on this feedback from the Evaluator: {feedback}"
+    if fact_feedback and fact_feedback != "ACCEPT":
+        prompt += f"\n\nFix the following factual inaccuracies in your draft based on the Fact Checker's feedback: {fact_feedback}"
         
     res = llm.invoke(prompt)
     
     # Reset research topics so a new set can be generated if rejected
-    return {"draft": res.content, "messages": [AIMessage(content="Writer: Draft completed!")], "research_topics": []}
+    return {"draft": res.content, "messages": [AIMessage(content="Writer: Draft completed!")], "research_topics": [], "fact_check_result": "", "evaluation": ""}
+
+def fact_checker(state: OverallState):
+    print("Fact Checker is verifying...")
+    draft = state.get("draft", "")
+    summaries = "\n\n".join(state.get("summaries", []))
+    
+    prompt = f"Verify the following draft against the provided research summaries. \n\nSummaries:\n{summaries}\n\nDraft:\n{draft}\n\nDoes the draft accurately reflect the research without hallucinating information?"
+    
+    structured_llm = llm.with_structured_output(FactCheck)
+    result = structured_llm.invoke(prompt)
+    
+    if result.is_accurate:
+        return {"fact_check_result": "ACCEPT", "messages": [AIMessage(content="Fact Checker: Draft is factually accurate.")]}
+    else:
+        return {"fact_check_result": result.feedback, "messages": [AIMessage(content=f"Fact Checker: Inaccuracies found. {result.feedback}")]}
 
 def evaluator(state: OverallState):
     print("Evaluator is reviewing...")
@@ -161,6 +186,8 @@ def supervisor_router(state: OverallState):
         return END
     if state["next_agent"] == "evaluator":
         return "evaluator"
+    if state["next_agent"] == "fact_checker":
+        return "fact_checker"
     if state["next_agent"] == "researcher":
         return "researcher"
     return "writer"
@@ -172,6 +199,7 @@ def build_graph():
     builder.add_node("researcher", researcher)
     builder.add_node("research_worker", research_worker)
     builder.add_node("writer", writer)
+    builder.add_node("fact_checker", fact_checker)
     builder.add_node("evaluator", evaluator)
     
     builder.add_edge(START, "supervisor")
@@ -179,7 +207,7 @@ def build_graph():
     builder.add_conditional_edges(
         "supervisor", 
         supervisor_router, 
-        {"researcher": "researcher", "writer": "writer", "evaluator": "evaluator", END: END}
+        {"researcher": "researcher", "writer": "writer", "fact_checker": "fact_checker", "evaluator": "evaluator", END: END}
     )
     
     # Researcher fans out to research_workers (Map)
@@ -190,6 +218,9 @@ def build_graph():
     
     # Writer goes to supervisor
     builder.add_edge("writer", "supervisor")
+    
+    # Fact Checker goes to supervisor
+    builder.add_edge("fact_checker", "supervisor")
     
     # Evaluator goes to supervisor
     builder.add_edge("evaluator", "supervisor")
