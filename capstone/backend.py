@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from graph import graph
@@ -7,6 +8,14 @@ from langchain_core.messages import HumanMessage
 import os
 
 app = FastAPI(title="LangGraph Capstone API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class InvokeRequest(BaseModel):
     message: str = None
