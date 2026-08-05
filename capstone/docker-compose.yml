@@ -30,12 +30,12 @@ services:
     depends_on:
       - ollama
 
-  frontend:
+  frontend_web:
     build:
       context: .
-      dockerfile: Dockerfile.frontend
+      dockerfile: Dockerfile.frontend_web
     ports:
-      - "8501:8501"
+      - "5173:5173"
     environment:
       - BACKEND_URL=http://backend:8000
     depends_on:
