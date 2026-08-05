@@ -4,3 +4,5 @@ langchain-openai>=0.1.14
 langchain-anthropic>=0.1.19
 jupyter>=1.0.0
 python-dotenv>=1.0.0
+langchain-ollama
+langgraph
