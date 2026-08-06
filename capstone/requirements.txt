@@ -12,3 +12,9 @@ pydantic
 beautifulsoup4
 wikipedia
 langgraph-checkpoint-sqlite
+chromadb
+langchain-chroma
+langchain-experimental
+pandas
+matplotlib
+pdfplumber

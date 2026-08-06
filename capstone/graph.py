@@ -14,6 +14,11 @@ from langchain_community.tools import WikipediaQueryRun
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+# New Imports for RAG and Code Execution
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_experimental.utilities import PythonREPL
+
 load_dotenv()
 
 # Initialize Ollama LLM
@@ -33,6 +38,7 @@ class OverallState(TypedDict):
 
 class SummarizeState(TypedDict):
     topic: str
+    request: str
 
 # Structured output for topic generation
 class Topics(BaseModel):
@@ -96,15 +102,13 @@ def research_worker(state: SummarizeState):
             url = d.get("url")
             if url:
                 try:
-                    print(f"Scraping: {url}")
                     loader = WebBaseLoader(url)
                     web_docs = loader.load()
                     if web_docs:
-                        # Extract first 1000 characters from the scraped page
                         page_content = web_docs[0].page_content.replace('\n', ' ').strip()
                         docs_text += f"  Scraped Content: {page_content[:1000]}...\n"
                 except Exception as scrape_err:
-                    print(f"Failed to scrape {url}: {scrape_err}")
+                    pass
     except Exception as e:
         docs_text += f"Failed to search web: {e}\n"
         
@@ -117,11 +121,45 @@ def research_worker(state: SummarizeState):
     summary_prompt = f"Summarize the following search results and scraped content for the topic '{topic}':\n{docs_text}"
     res = llm.invoke(summary_prompt)
     
-    return {"summaries": [f"**{topic}**: {res.content}"]}
+    return {"summaries": [f"**Web Research - {topic}**: {res.content}"]}
+
+def document_retriever(state: SummarizeState):
+    print("Document Retriever checking local DB...")
+    req = state["request"]
+    try:
+        embeddings = OllamaEmbeddings(model="llama3.2:3b", base_url=ollama_base_url)
+        vectorstore = Chroma(persist_directory="data/chroma_db", embedding_function=embeddings)
+        docs = vectorstore.similarity_search(req, k=2)
+        if docs:
+            doc_text = "\n\n".join([d.page_content for d in docs])
+            return {"summaries": [f"**Local Documents**: {doc_text}"]}
+    except Exception as e:
+        print("Vectorstore error:", e)
+    return {"summaries": ["**Local Documents**: No relevant local documents found."]}
+
+def data_analyst(state: SummarizeState):
+    print("Data Analyst exploring data...")
+    req = state["request"]
+    prompt = f"Based on this request: '{req}', write Python code to perform any relevant math, logic, or data calculations. Output ONLY valid executable python code. No markdown formatting. If no calculation is needed, output: print('No analysis needed')"
+    res = llm.invoke(prompt)
+    code = res.content.replace('```python', '').replace('```', '').strip()
+    
+    try:
+        repl = PythonREPL()
+        result = repl.run(code)
+        return {"summaries": [f"**Data Analyst Output**: {result.strip()}"]}
+    except Exception as e:
+        return {"summaries": [f"**Data Analyst Error**: {e}"]}
 
 def map_research(state: OverallState):
     topics = state.get("research_topics", [])
-    return [Send("research_worker", {"topic": t}) for t in topics]
+    messages = state.get("messages", [])
+    req = messages[0].content if messages and hasattr(messages[0], 'content') else str(messages)
+    
+    sends = [Send("research_worker", {"topic": t, "request": req}) for t in topics]
+    sends.append(Send("document_retriever", {"topic": "Local Documents", "request": req}))
+    sends.append(Send("data_analyst", {"topic": "Data Analysis", "request": req}))
+    return sends
 
 def writer(state: OverallState):
     print("Writer is drafting...")
@@ -133,7 +171,7 @@ def writer(state: OverallState):
     feedback = state.get("evaluation", "")
     fact_feedback = state.get("fact_check_result", "")
     
-    prompt = f"Write a comprehensive, well-structured report based on these research summaries:\n{summaries_text}\n\nOriginal User request: {user_request}"
+    prompt = f"Write a comprehensive, well-structured report based on these research summaries (which include Web Search, Local Documents, and Data Analysis):\n{summaries_text}\n\nOriginal User request: {user_request}"
     if feedback and feedback != "ACCEPT":
         prompt += f"\n\nImprove your previous draft based on this feedback from the Evaluator: {feedback}"
     if fact_feedback and fact_feedback != "ACCEPT":
@@ -141,7 +179,6 @@ def writer(state: OverallState):
         
     res = llm.invoke(prompt)
     
-    # Reset research topics so a new set can be generated if rejected
     return {"draft": res.content, "messages": [AIMessage(content="Writer: Draft completed!")], "research_topics": [], "fact_check_result": "", "evaluation": ""}
 
 def fact_checker(state: OverallState):
@@ -167,7 +204,6 @@ def evaluator(state: OverallState):
     revision_count = state.get("revision_count", 0)
     
     if revision_count >= 2:
-        # Max revisions reached
         return {"evaluation": "ACCEPT", "revision_count": revision_count + 1, "messages": [AIMessage(content="Evaluator: Max revisions reached, accepting draft as final.")]}
         
     prompt = f"Evaluate this draft against the original user request.\nRequest: {user_request}\nDraft: {draft}\nDoes it fully and accurately address the request?"
@@ -198,6 +234,8 @@ def build_graph():
     builder.add_node("supervisor", supervisor)
     builder.add_node("researcher", researcher)
     builder.add_node("research_worker", research_worker)
+    builder.add_node("document_retriever", document_retriever)
+    builder.add_node("data_analyst", data_analyst)
     builder.add_node("writer", writer)
     builder.add_node("fact_checker", fact_checker)
     builder.add_node("evaluator", evaluator)
@@ -210,11 +248,13 @@ def build_graph():
         {"researcher": "researcher", "writer": "writer", "fact_checker": "fact_checker", "evaluator": "evaluator", END: END}
     )
     
-    # Researcher fans out to research_workers (Map)
-    builder.add_conditional_edges("researcher", map_research, ["research_worker"])
+    # Researcher fans out to research_workers, document_retriever, data_analyst (Map)
+    builder.add_conditional_edges("researcher", map_research, ["research_worker", "document_retriever", "data_analyst"])
     
     # Workers fan in to supervisor
     builder.add_edge("research_worker", "supervisor")
+    builder.add_edge("document_retriever", "supervisor")
+    builder.add_edge("data_analyst", "supervisor")
     
     # Writer goes to supervisor
     builder.add_edge("writer", "supervisor")
@@ -230,7 +270,6 @@ def build_graph():
     conn = sqlite3.connect("data/memory.sqlite", check_same_thread=False)
     memory = SqliteSaver(conn)
     
-    # Human in the loop! Interrupt before writer drafts the report.
     return builder.compile(checkpointer=memory, interrupt_before=["writer"])
 
 graph = build_graph()
