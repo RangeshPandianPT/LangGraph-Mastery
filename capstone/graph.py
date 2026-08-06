@@ -140,10 +140,15 @@ def document_retriever(state: SummarizeState):
 def data_analyst(state: SummarizeState):
     print("Data Analyst exploring data...")
     req = state["request"]
-    prompt = f"Based on this request: '{req}', write Python code to perform any relevant math, logic, or data calculations. Output ONLY valid executable python code. No markdown formatting. If no calculation is needed, output: print('No analysis needed')"
+    prompt = f"Based on this request: '{req}', write Python code to perform any relevant math, logic, or data calculations. Output ONLY valid executable python code. No markdown formatting. If no calculation is needed, output: print('No analysis needed')\n\nCRITICAL SECURITY RULE: Do not import or use 'os', 'sys', 'subprocess', or execute any system commands."
     res = llm.invoke(prompt)
     code = res.content.replace('```python', '').replace('```', '').strip()
     
+    # Basic Security Check
+    forbidden_imports = ["import os", "import sys", "import subprocess", "__import__", "eval", "exec"]
+    if any(forbidden in code for forbidden in forbidden_imports):
+        return {"summaries": ["**Data Analyst Error**: Security violation detected. Code execution blocked."]}
+        
     try:
         repl = PythonREPL()
         result = repl.run(code)
