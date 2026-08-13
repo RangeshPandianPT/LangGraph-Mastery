@@ -204,6 +204,30 @@ function App() {
     setMessages(prev => [...prev, { role: 'assistant', content: `🔄 **Time Travel**: Resuming from checkpoint ${cid.substring(0,8)}...` }]);
   };
 
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+      const res = await fetch(`${BACKEND_URL}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      if (res.ok) {
+        alert("File uploaded and queued for ingestion successfully!");
+      } else {
+        alert("Failed to upload file.");
+      }
+    } catch(err) {
+      alert("Error uploading file: " + err.message);
+    }
+    // reset input
+    e.target.value = null;
+  };
+
   return (
     <div className="app-container">
       <div className="sidebar">
@@ -233,6 +257,16 @@ function App() {
             <History size={18} /> Time Travel
           </button>
         </nav>
+
+        <div className="upload-section" style={{marginTop: '2rem', padding: '0 1rem'}}>
+          <h4 style={{marginBottom: '0.5rem', color: '#888'}}>Knowledge Base (RAG)</h4>
+          <input 
+            type="file" 
+            accept=".pdf,.txt" 
+            onChange={handleFileUpload}
+            style={{fontSize: '0.8rem', width: '100%'}}
+          />
+        </div>
 
         {finalDraft && (
           <div className="download-section">

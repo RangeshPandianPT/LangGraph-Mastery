@@ -17,7 +17,7 @@ if "thread_id" not in st.session_state:
 with st.sidebar:
     st.header("Settings & Tools")
     
-    tab1, tab2 = st.tabs(["Controls", "Architecture"])
+    tab1, tab2, tab3 = st.tabs(["Controls", "Architecture", "RAG Setup"])
     
     with tab1:
         new_thread_id = st.text_input("Thread ID", value=st.session_state.thread_id)
@@ -70,6 +70,21 @@ with st.sidebar:
             st.markdown(f"```mermaid\n{mermaid_res.text}\n```")
         else:
             st.error("Could not load graph visualization.")
+            
+    with tab3:
+        st.subheader("Upload Documents")
+        st.write("Upload PDFs or Text files to be queried by the Document Retriever agent.")
+        uploaded_file = st.file_uploader("Choose a file", type=["pdf", "txt"])
+        if uploaded_file is not None:
+            if st.button("Upload and Ingest"):
+                with st.spinner("Uploading and ingesting..."):
+                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+                    res = requests.post(f"{BACKEND_URL}/upload", files=files)
+                    if res.status_code == 200:
+                        st.success(res.json()["message"])
+                    else:
+                        st.error(f"Failed to upload document. {res.text}")
+
 
 # Render chat history
 for msg in st.session_state.chat_history:
