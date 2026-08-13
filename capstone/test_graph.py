@@ -1,6 +1,7 @@
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage
-from graph import OverallState, supervisor
+from graph import OverallState, supervisor, supervisor_router
+from langgraph.graph import END
 
 def test_supervisor_routing_to_researcher():
     """Test that initially, supervisor routes to researcher."""
@@ -81,3 +82,19 @@ def test_supervisor_routing_to_finish():
     
     result = supervisor(state)
     assert result["next_agent"] == "FINISH"
+
+def test_supervisor_router_finish():
+    assert supervisor_router({"next_agent": "FINISH"}) == END
+
+def test_supervisor_router_evaluator():
+    assert supervisor_router({"next_agent": "evaluator"}) == "evaluator"
+
+def test_supervisor_router_fact_checker():
+    assert supervisor_router({"next_agent": "fact_checker"}) == "fact_checker"
+
+def test_supervisor_router_researcher():
+    assert supervisor_router({"next_agent": "researcher"}) == "researcher"
+
+def test_supervisor_router_writer():
+    assert supervisor_router({"next_agent": "writer"}) == "writer"
+
