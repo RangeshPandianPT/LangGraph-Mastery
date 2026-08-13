@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -6,6 +6,8 @@ from graph import graph
 import json
 from langchain_core.messages import HumanMessage
 import os
+import shutil
+from ingest import ingest_documents
 
 app = FastAPI(title="LangGraph Capstone API")
 
@@ -106,6 +108,23 @@ def get_graph_mermaid():
         return graph.get_graph().draw_mermaid()
     except Exception as e:
         return f"Error generating graph: {e}"
+
+@app.post("/upload")
+def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    raw_docs_dir = "data/raw_docs"
+    os.makedirs(raw_docs_dir, exist_ok=True)
+    file_path = os.path.join(raw_docs_dir, file.filename)
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    # Run ingestion in the background
+    background_tasks.add_task(ingest_documents, raw_docs_dir, "data/chroma_db")
+    
+    return {"message": f"Successfully uploaded {file.filename} and queued for ingestion."}
 
 if __name__ == "__main__":
     import uvicorn
