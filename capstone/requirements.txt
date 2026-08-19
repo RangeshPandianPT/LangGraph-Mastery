@@ -18,3 +18,7 @@ langchain-experimental
 pandas
 matplotlib
 pdfplumber
+langgraph-checkpoint-postgres
+psycopg[binary]
+psycopg-pool
+e2b_code_interpreter
