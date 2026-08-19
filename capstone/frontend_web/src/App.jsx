@@ -99,12 +99,25 @@ function App() {
                 break;
               }
               
+              if (data.token) {
+                if (!currentAssistantMessage.includes('### Final Report Draft')) {
+                    currentAssistantMessage += `\n\n### Final Report Draft\n`;
+                }
+                currentAssistantMessage += data.token;
+                setMessages(prev => {
+                  const newMsgs = [...prev];
+                  newMsgs[newMsgs.length - 1].content = currentAssistantMessage;
+                  return newMsgs;
+                });
+                continue;
+              }
+              
               const nodeName = Object.keys(data)[0];
               const stateUpdate = data[nodeName];
               
               if (nodeName === "writer" && stateUpdate.draft) {
-                currentAssistantMessage += `\n\n### Final Report Draft\n${stateUpdate.draft}\n\n`;
                 setFinalDraft(stateUpdate.draft);
+                currentAssistantMessage += `\n\n✅ Report finalized.\n\n`;
               } else if (nodeName === "evaluator" && stateUpdate.evaluation) {
                 if (stateUpdate.evaluation === 'ACCEPT') {
                    currentAssistantMessage += `\n**[Evaluator]**: ✅ Draft Accepted!\n`;
