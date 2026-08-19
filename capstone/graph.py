@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_experimental.utilities import PythonREPL
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 load_dotenv()
 
@@ -138,21 +139,29 @@ def document_retriever(state: SummarizeState):
     return {"summaries": ["**Local Documents**: No relevant local documents found."]}
 
 def data_analyst(state: SummarizeState):
-    print("Data Analyst exploring data...")
+    print("Data Analyst exploring data (E2B Sandbox)...")
     req = state["request"]
-    prompt = f"Based on this request: '{req}', write Python code to perform any relevant math, logic, or data calculations. Output ONLY valid executable python code. No markdown formatting. If no calculation is needed, output: print('No analysis needed')\n\nCRITICAL SECURITY RULE: Do not import or use 'os', 'sys', 'subprocess', or execute any system commands."
+    prompt = f"Based on this request: '{req}', write Python code to perform any relevant math, logic, or data calculations. Output ONLY valid executable python code. No markdown formatting. If no calculation is needed, output: print('No analysis needed')"
     res = llm.invoke(prompt)
     code = res.content.replace('```python', '').replace('```', '').strip()
     
-    # Basic Security Check
-    forbidden_imports = ["import os", "import sys", "import subprocess", "__import__", "eval", "exec"]
-    if any(forbidden in code for forbidden in forbidden_imports):
-        return {"summaries": ["**Data Analyst Error**: Security violation detected. Code execution blocked."]}
+    if not os.environ.get("E2B_API_KEY"):
+        return {"summaries": ["**Data Analyst Error**: E2B_API_KEY not set for secure code execution."]}
         
     try:
-        repl = PythonREPL()
-        result = repl.run(code)
-        return {"summaries": [f"**Data Analyst Output**: {result.strip()}"]}
+        from e2b_code_interpreter import Sandbox
+        with Sandbox() as sandbox:
+            execution = sandbox.run_code(code)
+            output = ""
+            if execution.logs.stdout:
+                output += "\n".join(execution.logs.stdout)
+            if execution.logs.stderr:
+                output += "\n".join(execution.logs.stderr)
+            if execution.error:
+                output += f"\nError: {execution.error.name}: {execution.error.value}"
+            if not output:
+                output = "Code executed successfully with no output."
+        return {"summaries": [f"**Data Analyst Output**: {output.strip()}"]}
     except Exception as e:
         return {"summaries": [f"**Data Analyst Error**: {e}"]}
 
@@ -272,8 +281,19 @@ def build_graph():
     
     # Persistence
     os.makedirs("data", exist_ok=True)
-    conn = sqlite3.connect("data/memory.sqlite", check_same_thread=False)
-    memory = SqliteSaver(conn)
+    db_uri = os.environ.get("POSTGRES_URI")
+    
+    if db_uri:
+        from langgraph.checkpoint.postgres import PostgresSaver
+        from psycopg_pool import ConnectionPool
+        
+        # In a real app you'd want to manage the pool lifecycle more carefully
+        pool = ConnectionPool(conninfo=db_uri, max_size=20)
+        memory = PostgresSaver(pool)
+        memory.setup()
+    else:
+        conn = sqlite3.connect("data/memory.sqlite", check_same_thread=False)
+        memory = SqliteSaver(conn)
     
     return builder.compile(checkpointer=memory, interrupt_before=["writer"])
 
