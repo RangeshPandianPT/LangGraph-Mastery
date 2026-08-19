@@ -57,18 +57,26 @@ def stream_graph(req: InvokeRequest):
         state = graph.get_state(config)
         inputs = None if state.next else {"messages": [HumanMessage(content=req.message)]}
         
-        for update in graph.stream(inputs, config=config, stream_mode="updates"):
-            serializable_update = {}
-            for node, state_data in update.items():
-                node_data = {}
-                for k, v in state_data.items():
-                    if k == "messages":
-                        node_data[k] = [serialize_message(m) for m in v]
-                    else:
-                        node_data[k] = v
-                serializable_update[node] = node_data
+        for stream_type, data in graph.stream(inputs, config=config, stream_mode=["updates", "messages"]):
+            if stream_type == "messages":
+                chunk, metadata = data
+                if metadata.get("langgraph_node") == "writer":
+                    if hasattr(chunk, "content") and chunk.content:
+                        yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+                continue
                 
-            yield f"data: {json.dumps(serializable_update)}\n\n"
+            if stream_type == "updates":
+                serializable_update = {}
+                for node, state_data in data.items():
+                    node_data = {}
+                    for k, v in state_data.items():
+                        if k == "messages":
+                            node_data[k] = [serialize_message(m) for m in v]
+                        else:
+                            node_data[k] = v
+                    serializable_update[node] = node_data
+                    
+                yield f"data: {json.dumps(serializable_update)}\n\n"
             
         final_state = graph.get_state(config)
         if final_state.next:
