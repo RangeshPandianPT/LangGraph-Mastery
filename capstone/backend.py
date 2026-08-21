@@ -31,7 +31,7 @@ def serialize_message(m):
 
 @app.post("/invoke")
 def invoke_graph(req: InvokeRequest):
-    config = {"configurable": {"thread_id": req.thread_id}}
+    config = {"configurable": {"thread_id": req.thread_id, "user_id": "capstone_user"}}
     if req.checkpoint_id:
         config["configurable"]["checkpoint_id"] = req.checkpoint_id
     
@@ -49,7 +49,7 @@ def invoke_graph(req: InvokeRequest):
 
 @app.post("/stream")
 def stream_graph(req: InvokeRequest):
-    config = {"configurable": {"thread_id": req.thread_id}}
+    config = {"configurable": {"thread_id": req.thread_id, "user_id": "capstone_user"}}
     if req.checkpoint_id:
         config["configurable"]["checkpoint_id"] = req.checkpoint_id
     
