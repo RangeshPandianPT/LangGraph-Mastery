@@ -13,6 +13,8 @@ from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_community.tools import WikipediaQueryRun
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+from langgraph.store.memory import InMemoryStore
+from langgraph.store.base import BaseStore
 
 # New Imports for RAG and Code Execution
 from langchain_chroma import Chroma
@@ -66,6 +68,25 @@ def supervisor(state: OverallState):
         return {"next_agent": "researcher"}
     return {"next_agent": "writer"}
 
+def memory_manager(state: OverallState, config: dict, store: BaseStore):
+    """Extracts and stores user preferences across sessions."""
+    messages = state.get("messages", [])
+    user_request = messages[0].content if messages and hasattr(messages[0], 'content') else str(messages)
+    
+    # Prompt LLM to extract preferences
+    prompt = f"Extract any formatting or style preferences from this request (e.g., 'use bullet points', 'write in spanish'). If none, output 'NONE'. Request: {user_request}"
+    res = llm.invoke(prompt)
+    pref = res.content.strip()
+    
+    user_id = config["configurable"].get("user_id", "default_user")
+    
+    if pref != "NONE":
+        # Save to cross-thread store
+        store.put(("preferences", user_id), "style", {"preference": pref})
+        print(f"Saved preference to Store: {pref}")
+        
+    return {"messages": [AIMessage(content=f"Memory Manager: Processed preferences.")]}
+
 def researcher(state: OverallState):
     print("Researcher is working...")
     messages = state.get("messages", [])
@@ -91,8 +112,8 @@ def research_worker(state: SummarizeState):
     print(f"Research Worker investigating: {state['topic']}")
     topic = state["topic"]
     
-    # Use Tavily Search and Wikipedia
-    tavily_search = TavilySearchResults(max_results=2)
+    # Use Tavily Search (Advanced extraction) and Wikipedia
+    tavily_search = TavilySearchResults(max_results=2, include_raw_content=True)
     wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
     
     docs_text = ""
@@ -100,6 +121,9 @@ def research_worker(state: SummarizeState):
         docs = tavily_search.invoke(topic)
         for d in docs:
             docs_text += f"- Title/Snippet: {d.get('content', '')}\n"
+            raw = d.get('raw_content', '')
+            if raw:
+                docs_text += f"  Raw Content: {raw[:1500]}...\n"
             url = d.get("url")
             if url:
                 try:
@@ -159,6 +183,15 @@ def data_analyst(state: SummarizeState):
                 output += "\n".join(execution.logs.stderr)
             if execution.error:
                 output += f"\nError: {execution.error.name}: {execution.error.value}"
+                
+            # Extract charts/images from E2B results
+            if execution.results:
+                for result in execution.results:
+                    if hasattr(result, "png") and result.png:
+                        output += f"\n\n![Chart](data:image/png;base64,{result.png})\n\n"
+                    elif hasattr(result, "text") and result.text:
+                        output += f"\n{result.text}\n"
+                        
             if not output:
                 output = "Code executed successfully with no output."
         return {"summaries": [f"**Data Analyst Output**: {output.strip()}"]}
@@ -175,7 +208,7 @@ def map_research(state: OverallState):
     sends.append(Send("data_analyst", {"topic": "Data Analysis", "request": req}))
     return sends
 
-def writer(state: OverallState):
+def writer(state: OverallState, config: dict, store: BaseStore):
     print("Writer is drafting...")
     summaries = state.get("summaries", [])
     summaries_text = "\n\n".join(summaries)
@@ -185,7 +218,12 @@ def writer(state: OverallState):
     feedback = state.get("evaluation", "")
     fact_feedback = state.get("fact_check_result", "")
     
-    prompt = f"Write a comprehensive, well-structured report based on these research summaries (which include Web Search, Local Documents, and Data Analysis):\n{summaries_text}\n\nOriginal User request: {user_request}"
+    # Retrieve user preferences from Long-Term Memory (Store)
+    user_id = config["configurable"].get("user_id", "default_user")
+    prefs = store.get(("preferences", user_id), "style")
+    pref_text = f"\n\nUSER PREFERENCE TO FOLLOW: {prefs.value['preference']}" if prefs else ""
+    
+    prompt = f"Write a comprehensive, well-structured report based on these research summaries (which include Web Search, Local Documents, and Data Analysis):\n{summaries_text}\n\nOriginal User request: {user_request}{pref_text}"
     if feedback and feedback != "ACCEPT":
         prompt += f"\n\nImprove your previous draft based on this feedback from the Evaluator: {feedback}"
     if fact_feedback and fact_feedback != "ACCEPT":
@@ -245,6 +283,7 @@ def supervisor_router(state: OverallState):
 def build_graph():
     builder = StateGraph(OverallState)
     
+    builder.add_node("memory_manager", memory_manager)
     builder.add_node("supervisor", supervisor)
     builder.add_node("researcher", researcher)
     builder.add_node("research_worker", research_worker)
@@ -254,7 +293,8 @@ def build_graph():
     builder.add_node("fact_checker", fact_checker)
     builder.add_node("evaluator", evaluator)
     
-    builder.add_edge(START, "supervisor")
+    builder.add_edge(START, "memory_manager")
+    builder.add_edge("memory_manager", "supervisor")
     
     builder.add_conditional_edges(
         "supervisor", 
@@ -294,7 +334,10 @@ def build_graph():
     else:
         conn = sqlite3.connect("data/memory.sqlite", check_same_thread=False)
         memory = SqliteSaver(conn)
+        
+    # Initialize Cross-Thread Memory Store
+    store = InMemoryStore()
     
-    return builder.compile(checkpointer=memory, interrupt_before=["writer"])
+    return builder.compile(checkpointer=memory, store=store, interrupt_before=["writer"])
 
 graph = build_graph()
