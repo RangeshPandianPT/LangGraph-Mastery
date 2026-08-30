@@ -6,3 +6,8 @@ jupyter>=1.0.0
 python-dotenv>=1.0.0
 langchain-ollama
 langgraph
+langgraph-cli
+langgraph-checkpoint-postgres
+psycopg-pool
+langsmith
+psycopg[binary]
