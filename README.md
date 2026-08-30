@@ -40,6 +40,10 @@ LangGraph solves this by modeling workflows as **Stateful Graphs**.
 8. **`08_multi_agent.py`**: Build a multi-agent system with a supervisor orchestrating a researcher and writer.
 9. **`09_streaming.py`**: Understand how to stream state updates and values in real-time as nodes execute.
 10. **`10_map_reduce.py`**: Use the `Send` API to dynamically fan-out parallel tasks (Map-Reduce pattern).
+11. **`11_self_rag.py`**: Build a Self-Reflective RAG architecture where the agent grades retrieved documents for relevance before answering.
+12. **`12_adaptive_rag.py`**: Implement a routing agent that decides between web search and a vector store dynamically based on user intent.
+13. **`13_postgres_checkpointer.py`**: productionize state memory by connecting the graph's checkpointer to a PostgreSQL database.
+14. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
 
 ## Getting Started
 First, install the requirements:
@@ -59,6 +63,10 @@ python 07_time_travel.py
 python 08_multi_agent.py
 python 09_streaming.py
 python 10_map_reduce.py
+python 11_self_rag.py
+python 12_adaptive_rag.py
+python 13_postgres_checkpointer.py
+python evals/01_evaluate_agent.py
 ```
 
 ## Capstone Project
