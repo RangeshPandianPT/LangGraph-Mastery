@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Play, CheckCircle, Clock, History, LayoutDashboard, GitFork, Download, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Play, CheckCircle, Clock, History, LayoutDashboard, GitFork, Download, RefreshCw, Activity } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Mermaid from './Mermaid';
 import './index.css';
 
@@ -18,6 +21,7 @@ function App() {
   const [history, setHistory] = useState([]);
   const [checkpointId, setCheckpointId] = useState(null);
   const [finalDraft, setFinalDraft] = useState('');
+  const [activeNode, setActiveNode] = useState(null);
   
   const messagesEndRef = useRef(null);
 
@@ -77,7 +81,10 @@ function App() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          setActiveNode(null);
+          break;
+        }
         
         buffer += decoder.decode(value, { stream: true });
         
@@ -95,7 +102,8 @@ function App() {
               if (data.status === "PAUSED") {
                 setIsPaused(true);
                 currentAssistantMessage += "\n\n⏸️ **Paused for Human Approval.** I am ready to write the report based on the gathered research.";
-                fetchState(); 
+                fetchState();
+                setActiveNode("human_approval");
                 break;
               }
               
@@ -109,28 +117,33 @@ function App() {
                   newMsgs[newMsgs.length - 1].content = currentAssistantMessage;
                   return newMsgs;
                 });
+                setActiveNode("writer");
                 continue;
               }
               
               const nodeName = Object.keys(data)[0];
+              if (nodeName && nodeName !== "status" && nodeName !== "token") {
+                setActiveNode(nodeName);
+              }
+              
               const stateUpdate = data[nodeName];
               
-              if (nodeName === "writer" && stateUpdate.draft) {
+              if (nodeName === "writer" && stateUpdate?.draft) {
                 setFinalDraft(stateUpdate.draft);
                 currentAssistantMessage += `\n\n✅ Report finalized.\n\n`;
-              } else if (nodeName === "evaluator" && stateUpdate.evaluation) {
+              } else if (nodeName === "evaluator" && stateUpdate?.evaluation) {
                 if (stateUpdate.evaluation === 'ACCEPT') {
                    currentAssistantMessage += `\n**[Evaluator]**: ✅ Draft Accepted!\n`;
                 } else {
                    currentAssistantMessage += `\n**[Evaluator]**: 🔄 Revision Needed - ${stateUpdate.evaluation}\n`;
                 }
-              } else if (nodeName === "fact_checker" && stateUpdate.fact_check_result) {
+              } else if (nodeName === "fact_checker" && stateUpdate?.fact_check_result) {
                 if (stateUpdate.fact_check_result === 'ACCEPT') {
                    currentAssistantMessage += `\n**[Fact Checker]**: ✅ Facts Verified!\n`;
                 } else {
                    currentAssistantMessage += `\n**[Fact Checker]**: ❌ Inaccuracies Found - ${stateUpdate.fact_check_result}\n`;
                 }
-              } else {
+              } else if (stateUpdate?.messages) {
                 const msgs = stateUpdate.messages || [];
                 if (msgs.length > 0) {
                   currentAssistantMessage += `\n*[{${nodeName}}]*: ${msgs[msgs.length - 1]}\n`;
@@ -144,7 +157,7 @@ function App() {
               });
               
             } catch (e) {
-              console.error("Parse error", e);
+              // Ignore partial JSON parsing errors in stream
             }
           }
         }
@@ -155,6 +168,7 @@ function App() {
     } finally {
       setIsLoading(false);
       setCheckpointId(null);
+      if (!isPaused) setActiveNode(null);
     }
   };
 
@@ -184,6 +198,7 @@ function App() {
     const currentInput = input;
     setInput('');
     setActiveTab('chat');
+    setActiveNode("supervisor");
     
     const payload = { message: currentInput, thread_id: threadId };
     if (checkpointId) payload.checkpoint_id = checkpointId;
@@ -193,6 +208,7 @@ function App() {
 
   const handleApprove = () => {
     setIsPaused(false);
+    setActiveNode("writer");
     const payload = { message: "", thread_id: threadId };
     if (checkpointId) payload.checkpoint_id = checkpointId;
     processStream(payload);
@@ -237,7 +253,6 @@ function App() {
     } catch(err) {
       alert("Error uploading file: " + err.message);
     }
-    // reset input
     e.target.value = null;
   };
 
@@ -292,7 +307,19 @@ function App() {
 
       <div className="main-content">
         <header>
-          <h2>{activeTab === 'chat' ? 'Multi-Agent Workflow' : activeTab === 'architecture' ? 'Graph Visualization' : 'Execution History'}</h2>
+          <div style={{display: 'flex', alignItems: 'center', gap: '1rem'}}>
+            <h2>{activeTab === 'chat' ? 'Multi-Agent Workflow' : activeTab === 'architecture' ? 'Graph Visualization' : 'Execution History'}</h2>
+            {activeNode && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="active-node-badge"
+              >
+                <Activity size={14} className="spin-icon" />
+                Active: {activeNode}
+              </motion.div>
+            )}
+          </div>
           <div className="action-buttons">
             <button onClick={fetchState} title="Sync State"><RefreshCw size={16} /> Sync</button>
           </div>
@@ -302,33 +329,72 @@ function App() {
           <div className="chat-area">
             <div className="chat-container">
               {messages.length === 0 && (
-                <div style={{textAlign: 'center', opacity: 0.5, marginTop: '20%'}}>
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  style={{textAlign: 'center', opacity: 0.5, marginTop: '20%'}}
+                >
                   <h2>What should the agents research?</h2>
                   <p>Enter a topic below to start the multi-agent workflow.</p>
-                </div>
+                </motion.div>
               )}
               
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`message ${msg.role}`}>
-                  <div className="avatar">
-                    {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
-                  </div>
-                  <div className="message-content">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
-                </div>
-              ))}
+              <AnimatePresence>
+                {messages.map((msg, idx) => (
+                  <motion.div 
+                    key={idx} 
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                    className={`message ${msg.role}`}
+                  >
+                    <div className="avatar">
+                      {msg.role === 'user' ? <User size={20} /> : <Bot size={20} />}
+                    </div>
+                    <div className="message-content">
+                      <ReactMarkdown
+                        components={{
+                          code({node, inline, className, children, ...props}) {
+                            const match = /language-(\w+)/.exec(className || '')
+                            return !inline && match ? (
+                              <SyntaxHighlighter
+                                style={vscDarkPlus}
+                                language={match[1]}
+                                PreTag="div"
+                                className="code-block"
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            )
+                          }
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
               
               {isPaused && (
-                <div className="message assistant">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="message assistant"
+                >
                   <div className="avatar"><CheckCircle size={20} /></div>
                   <div className="message-content approval-box">
                     <h3>Human Approval Required</h3>
                     <p>The researchers have finished gathering data. Review the summaries before approving the draft generation.</p>
                     
-                    <div style={{background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px', maxHeight: '150px', overflowY: 'auto'}}>
+                    <div className="summaries-container">
                       {summaries.map((s, i) => (
-                        <div key={i}><ReactMarkdown>{s}</ReactMarkdown><hr style={{borderColor: 'rgba(255,255,255,0.1)', margin: '0.5rem 0'}}/></div>
+                        <div key={i}><ReactMarkdown>{s}</ReactMarkdown><hr className="summary-divider"/></div>
                       ))}
                     </div>
                     
@@ -336,7 +402,7 @@ function App() {
                       <Play size={16} style={{marginRight: '0.5rem'}} /> Approve & Draft Report
                     </button>
                   </div>
-                </div>
+                </motion.div>
               )}
               
               <div ref={messagesEndRef} />
@@ -358,15 +424,21 @@ function App() {
         )}
 
         {activeTab === 'architecture' && (
-          <div className="tab-pane architecture-pane">
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="tab-pane architecture-pane"
+          >
             <div className="mermaid-container">
               {mermaidGraph ? <Mermaid chart={mermaidGraph} /> : <p>Loading graph...</p>}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {activeTab === 'history' && (
-          <div className="tab-pane history-pane">
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="tab-pane history-pane"
+          >
             {history.length === 0 ? (
               <p style={{opacity: 0.5}}>No history found for thread '{threadId}'.</p>
             ) : (
@@ -394,7 +466,7 @@ function App() {
                 ))}
               </div>
             )}
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
