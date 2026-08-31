@@ -154,10 +154,13 @@ def document_retriever(state: SummarizeState):
     try:
         embeddings = OllamaEmbeddings(model="llama3.2:3b", base_url=ollama_base_url)
         vectorstore = Chroma(persist_directory="data/chroma_db", embedding_function=embeddings)
-        docs = vectorstore.similarity_search(req, k=2)
+        
+        # ADVANCED RAG: Using Maximal Marginal Relevance (MMR) for diverse results
+        docs = vectorstore.search(req, search_type="mmr", k=3, fetch_k=10)
+        
         if docs:
             doc_text = "\n\n".join([d.page_content for d in docs])
-            return {"summaries": [f"**Local Documents**: {doc_text}"]}
+            return {"summaries": [f"**Local Documents (MMR)**: {doc_text}"]}
     except Exception as e:
         print("Vectorstore error:", e)
     return {"summaries": ["**Local Documents**: No relevant local documents found."]}
