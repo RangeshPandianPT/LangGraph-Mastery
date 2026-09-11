@@ -43,7 +43,9 @@ LangGraph solves this by modeling workflows as **Stateful Graphs**.
 11. **`11_self_rag.py`**: Build a Self-Reflective RAG architecture where the agent grades retrieved documents for relevance before answering.
 12. **`12_adaptive_rag.py`**: Implement a routing agent that decides between web search and a vector store dynamically based on user intent.
 13. **`13_postgres_checkpointer.py`**: productionize state memory by connecting the graph's checkpointer to a PostgreSQL database.
-14. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
+14. **`14_hybrid_rag_agent.py`**: Build an advanced Hybrid RAG Agent that retrieves data from both ChromaDB (vector) and Neo4j (graph) and synthesizes answers using an open-source model via Ollama.
+15. **`15_hybrid_rag_ui.py`**: A Streamlit UI that acts as a front-end interface for the Hybrid RAG agent.
+16. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
 
 ## Getting Started
 First, install the requirements:
@@ -66,6 +68,8 @@ python 10_map_reduce.py
 python 11_self_rag.py
 python 12_adaptive_rag.py
 python 13_postgres_checkpointer.py
+python 14_hybrid_rag_agent.py
+streamlit run 15_hybrid_rag_ui.py
 python evals/01_evaluate_agent.py
 ```
 
