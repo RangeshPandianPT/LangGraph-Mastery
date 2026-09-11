@@ -2,11 +2,17 @@ import streamlit as st
 import sys
 import os
 
-# Add scripts directory to path to import langgraph_agent
-sys.path.append(os.path.join(os.path.dirname(__file__), "scripts"))
+import importlib.util
+
+# Dynamically import the agent module because its filename starts with a number
 try:
-    from langgraph_agent import run_agent
-except ImportError as e:
+    agent_path = os.path.join(os.path.dirname(__file__), "14_hybrid_rag_agent.py")
+    spec = importlib.util.spec_from_file_location("hybrid_rag_agent", agent_path)
+    hybrid_rag_agent = importlib.util.module_from_spec(spec)
+    sys.modules["hybrid_rag_agent"] = hybrid_rag_agent
+    spec.loader.exec_module(hybrid_rag_agent)
+    run_agent = hybrid_rag_agent.run_agent
+except Exception as e:
     st.error(f"Failed to import LangGraph Agent: {e}")
     st.stop()
 
