@@ -1,6 +1,7 @@
 import os
 from langsmith import Client
-from langsmith.evaluation import evaluate, LangChainStringEvaluator
+from langsmith.evaluation import evaluate
+from langsmith.schemas import Run, Example
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
@@ -35,8 +36,20 @@ def predict(inputs: dict) -> dict:
     # The output format must match what the evaluators expect
     return {"output": result["answer"]}
 
+def qa_evaluator(run: Run, example: Example) -> dict:
+    """A custom evaluator that uses an LLM to grade the output."""
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    student_answer = run.outputs["output"]
+    expected_answer = example.outputs["expected"]
+    
+    prompt = f"Is the following student answer correct based on the expected answer? \nExpected: {expected_answer}\nStudent: {student_answer}\nAnswer with exactly 'YES' or 'NO'."
+    response = llm.invoke(prompt)
+    
+    score = 1 if "YES" in response.content.upper() else 0
+    return {"key": "correctness", "score": score}
+
 def run_evaluation():
-    # Note: Requires LANGCHAIN_API_KEY to be set in environment
+    # Note: Requires LANGCHAIN_API_KEY and OPENAI_API_KEY to be set in environment
     if not os.getenv("LANGCHAIN_API_KEY"):
         print("Warning: LANGCHAIN_API_KEY not set. Cannot run LangSmith evaluation.")
         return
@@ -68,16 +81,12 @@ def run_evaluation():
                 dataset_id=dataset.id,
             )
             
-    # 2. Define Evaluators
-    # We use a standard correctness evaluator using an LLM to judge the output
-    qa_evaluator = LangChainStringEvaluator("qa")
-    
-    # 3. Run the evaluation
+    # 2. Run the evaluation
     print(f"Running evaluation on dataset '{dataset_name}'...")
     experiment_results = evaluate(
         predict, # The function that runs our graph
         data=dataset_name,
-        evaluators=[qa_evaluator],
+        evaluators=[qa_evaluator], # Our custom LLM evaluator
         experiment_prefix="LangGraph-Agent-Eval",
         metadata={"version": "1.0", "agent_type": "simple_qa"}
     )
