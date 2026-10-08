@@ -46,6 +46,7 @@ LangGraph solves this by modeling workflows as **Stateful Graphs**.
 14. **`14_hybrid_rag_agent.py`**: Build an advanced Hybrid RAG Agent that retrieves data from both ChromaDB (vector) and Neo4j (graph) and synthesizes answers using an open-source model via Ollama.
 15. **`15_hybrid_rag_ui.py`**: A Streamlit UI that acts as a front-end interface for the Hybrid RAG agent.
 16. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
+17. **`evals/02_evaluate_hybrid_rag.py`**: An advanced evaluation script testing the groundedness of the Hybrid RAG agent using custom LangSmith evaluators.
 
 ## Getting Started
 First, install the requirements:
