@@ -45,8 +45,14 @@ LangGraph solves this by modeling workflows as **Stateful Graphs**.
 13. **`13_postgres_checkpointer.py`**: productionize state memory by connecting the graph's checkpointer to a PostgreSQL database.
 14. **`14_hybrid_rag_agent.py`**: Build an advanced Hybrid RAG Agent that retrieves data from both ChromaDB (vector) and Neo4j (graph) and synthesizes answers using an open-source model via Ollama.
 15. **`15_hybrid_rag_ui.py`**: A Streamlit UI that acts as a front-end interface for the Hybrid RAG agent.
-16. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
-17. **`evals/02_evaluate_hybrid_rag.py`**: An advanced evaluation script testing the groundedness of the Hybrid RAG agent using custom LangSmith evaluators.
+16. **`16_plan_and_execute.py`**: Implement the Plan-and-Execute (Solve) architecture with explicit task decomposition, step execution, and dynamic replanning.
+17. **`17_hierarchical_subgraphs.py`**: Build enterprise multi-agent workflows using nested subgraphs with isolated state schemas and parent orchestration.
+18. **`18_cross_thread_memory.py`**: Implement cross-thread long-term semantic memory using modern LangGraph Store (`BaseStore` / `InMemoryStore`) across independent conversation threads.
+19. **`19_corrective_rag.py`**: Complete the RAG trilogy with Corrective RAG (CRAG) featuring document grading, knowledge refinement (sentence stripping), and dynamic web search fallback.
+20. **`20_dynamic_interrupts_and_command.py`**: Implement modern Human-in-the-Loop workflows using in-node `interrupt()` and atomic state routing with the `Command` API.
+21. **`21_reflection_and_self_critique.py`**: Build an autonomous Reflexion agent (Actor - Tester - Reflector) that iteratively self-corrects generated code against unit test failures.
+22. **`evals/01_evaluate_agent.py`**: Test your graphs programmatically using LangSmith's evaluation framework.
+23. **`evals/02_evaluate_hybrid_rag.py`**: An advanced evaluation script testing the groundedness of the Hybrid RAG agent using custom LangSmith evaluators.
 
 ## Getting Started
 First, install the requirements:
@@ -71,6 +77,12 @@ python 12_adaptive_rag.py
 python 13_postgres_checkpointer.py
 python 14_hybrid_rag_agent.py
 streamlit run 15_hybrid_rag_ui.py
+python 16_plan_and_execute.py
+python 17_hierarchical_subgraphs.py
+python 18_cross_thread_memory.py
+python 19_corrective_rag.py
+python 20_dynamic_interrupts_and_command.py
+python 21_reflection_and_self_critique.py
 python evals/01_evaluate_agent.py
 ```
 
